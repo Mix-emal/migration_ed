@@ -1,0 +1,15 @@
+{
+    "LDAP_FILTER_USER": "(objectclass=Person)",
+    "LDAP_FILER_GROUP": "(objectclass=Group)",
+    "LDAP_FILER_OU" : "(objectClass=organizationalUnit)",
+    "READ_DOMAIN_ADMIN_USERNAME": "cn=admin,o=gazprom",
+    "READ_ADMIN_PASSWORD": "KernKraftWerk6^6^",
+    "READ_DOMAIN_DC_FQDN": "dc01.gazprom.ru",
+    "MIGRATION_DEFAULT_OU": "ou=HQ,o=gazprom",
+    "MIGRATION_ATTRIBUTES_GROUP": ["cn", "sAMAccountName"],
+    "MIGRATION_ATTRIBUTES_DICT": ["l", "givenname", "cn", "initials", "fullname", "sAMAccountName", "title", "mail","telephonenumber", "sn", "groupmembership"],
+    "WRITE_DOMAIN_ADMIN_USERNAME" : "Administrator@esk.lab",
+    "DEFAULT_USER_MIGRATION_PASSWORD": "P@ssw0rd",
+    "WRITE_ADMIN_PASSWORD" : "P@ssw0rd",
+    "WRITE_DOMAIN_DC_FQDN": "dc-100.esk.lab"
+}
