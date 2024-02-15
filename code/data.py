@@ -90,7 +90,7 @@ class Server_Data (Server):
         FQDN : str
         """
         
-        ldap_address = ['DC=' + dc for dc in self.__fqdn.split('.')]
+        ldap_address = ['dc=' + dc for dc in self.__fqdn.split('.')]
         ldap_address.pop(0)
         return ','.join(ldap_address)
     
