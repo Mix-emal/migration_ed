@@ -62,7 +62,7 @@ class LDAP_Connector (Connection):
 
     def __is_record_exist(self, search_filer: str):
         search = '(novellGUID={})'.format(search_filer)
-        records = self.search_records(filter='(objectClass=*)', search_base=self.server.get_split_fqdn())
+        records = self.search_records(filter=search, search_base=self.server.get_split_fqdn())
         return True if records else False   
 
 
@@ -153,11 +153,11 @@ class LDAP_Connector (Connection):
         common_users = set(source_user_list) & set(dest_user_list)
         not_on_dest_server = [element for element in source_user_list if element not in common_users]
         if len(not_on_dest_server) > 0:
-            logging.warning("Для группы " + group_dn + " нет пользователей на целевом севере:\n{}".format('\n'.join(map(str, not_on_dest_server))))
+            logging.warning("Для группы " + group_dn + " нет пользователей на целевом севере:\n\t{}".format('\n'.join(map(str, not_on_dest_server))))
         try:
             ad_add_members_to_groups(connection=self, members_dn=common_users, groups_dn=group_dn, fix=True, raise_error=False)
             if self.result['description'] == 'success' and self.result['type'] == 'modifyResponse':
-                logging.info("Для группы " + group_dn + " обновлено/добавлено членство пользователей:\n{}".format('\n'.join(map(str, common_users))))
+                logging.info("Для группы " + group_dn + " обновлено/добавлено членство пользователей:\n\t{}".format('\n'.join(map(str, common_users))))
             elif self.result['description'] == 'success' and self.result['type'] == 'searchResDone':
                 pass
             else:

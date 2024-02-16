@@ -69,7 +69,6 @@ def __main__():
         new_ou_dict[new_ou] = ou_mapped_attributes
     key_sort = sorted(new_ou_dict.keys(), key=count_ou_occurrences)
     sorted_new_ou_dict = {i: new_ou_dict[i] for i in key_sort}
-    print(sorted_new_ou_dict)
     for new_ou, attr in sorted_new_ou_dict.items():
         samba_connector.add_ou_record(new_dn=new_ou, record_attributes=attr)
     pass
