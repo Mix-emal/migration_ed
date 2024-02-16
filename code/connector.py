@@ -60,8 +60,9 @@ class LDAP_Connector (Connection):
         pass
 
 
-    def __is_record_exist(self, dn: str):
-        records = self.search_records(filter='(objectClass=*)', search_base=dn)
+    def __is_record_exist(self, search_filer: str):
+        search = '(novellGUID={})'.format(search_filer)
+        records = self.search_records(filter='(objectClass=*)', search_base=self.server.get_split_fqdn())
         return True if records else False   
 
 
@@ -88,7 +89,7 @@ class LDAP_Connector (Connection):
 
     def add_ou_record(self, new_dn: str, record_attributes: dict, object_class = ['organizationalUnit']):
         # print(new_dn, ' + ', object_class)
-        if not self.__is_record_exist(new_dn):
+        if not self.__is_record_exist(record_attributes['novellGUID']):
             self.add(dn=new_dn, object_class = object_class, attributes=record_attributes)
             if self.result['description'] == 'success' and self.result['type'] == 'addResponse':
                 logging.info('OU DN: ' + new_dn + ' добавлен')
@@ -101,7 +102,7 @@ class LDAP_Connector (Connection):
 
 
     def add_user_record(self, new_dn: str, default_password: str, record_attributes: dict, set_default_password=True, object_class=['top', 'person', 'organizationalPerson', 'user']):
-        if not self.__is_record_exist(new_dn):
+        if not self.__is_record_exist(record_attributes['novellGUID']):
             try:
                 self.add(dn=new_dn, object_class=object_class, attributes=record_attributes)
                 if self.result['description'] == 'success' and self.result['type'] == 'addResponse':
@@ -131,7 +132,7 @@ class LDAP_Connector (Connection):
 
 
     def add_group_record(self, new_dn: str, record_attributes: dict, object_class = ['top', 'group']):
-        if not self.__is_record_exist(new_dn):
+        if not self.__is_record_exist(record_attributes['novellGUID']):
             self.add(dn=new_dn, object_class = object_class, attributes=record_attributes)
             if self.result['description'] == 'success' and self.result['type'] == 'addResponse':
                 logging.info('Группа DN: ' + new_dn + ' добавлена')
