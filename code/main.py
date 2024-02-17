@@ -84,7 +84,7 @@ def __main__():
     pass
 
 
-
+"""
 ## Копирование групп и добавление в группу пользователей
     logging.info(f"************* Миграция групп {datetime.datetime.now()} *************")
     for group in source_groups_list:
@@ -102,6 +102,6 @@ def __main__():
         if samba_connector.result['description'] == 'success':
             samba_connector.add_users_to_group(members_dn = dest_group_members, group_dn=new_group_dn)
     pass
-
+"""
 
 __main__()

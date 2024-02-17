@@ -3,6 +3,39 @@ from ldap3.core.exceptions import LDAPException, LDAPBindError, LDAPInvalidDnErr
 from data import Server_Data, LDAP_Type
 from ldap3.extend.microsoft.addMembersToGroups import ad_add_members_to_groups
 from logger import logging
+from deepdiff import DeepDiff
+#from dictdiffer import diff, patch, swap, revert
+from dictionary_diff import diff
+
+class DictionaryCompare:
+    @staticmethod
+    def get_common_key_value_pairs(first_dictionary, second_dictionary):
+        result_dictionary = {}
+        for key in first_dictionary.keys():
+            # if key in second_dictionary.keys():
+            if first_dictionary[key] == second_dictionary[key]:
+                result_dictionary[key] = first_dictionary[key]
+
+        return result_dictionary
+    
+class UncasedDict(dict):                                                        
+    def __getitem__(self, key):                                                 
+        if isinstance(key, str):                                                
+            key = key.lower()                                                   
+        return super().__getitem__(key)                                         
+                                                                                
+    def __setitem__(self, key, value):                                          
+        if isinstance(key, str):                                                
+            key = key.lower()                                                   
+        return super().__setitem__(key, value)     
+    
+# class CaseInsensitiveDict(dict):
+#     def __setitem__(self, key, value):
+#         super(CaseInsensitiveDict, self).__setitem__(key.lower(), value)
+
+#     def __getitem__(self, key):
+#         return super(CaseInsensitiveDict, self).__getitem__(key.lower())
+    
 
 
 class LDAP_Connector (Connection):
@@ -59,13 +92,6 @@ class LDAP_Connector (Connection):
             pass
         pass
 
-
-    def __is_record_exist(self, search_filer: str):
-        search = '(novellGUID={})'.format(search_filer)
-        records = self.search_records(filter=search, search_base=self.server.get_split_fqdn())
-        return True if records else False   
-
-
     def search_records(self, filter: str, search_base: str, attrubite_list=['distinguishedName']):
         self.search(search_base=search_base, search_filter=filter, attributes=attrubite_list)
         return self.entries
@@ -86,10 +112,51 @@ class LDAP_Connector (Connection):
             destination_dn = ','.join(converted_parts)
             return destination_dn
 
+    def __is_record_exist(self, search_filer: str, attr: list):
+        search = '(novellGUID={})'.format(search_filer)
+        records = self.search_records(filter=search, search_base=self.server.get_split_fqdn(), attrubite_list=attr)
+        return records
+        # return True if records else False
+    
+
+    def compare_records(self, source_dn: str, source_attr: dict, dest_object):
+        source_dict = UncasedDict()
+        keylower_source_attr = {k.lower():v for k,v in source_attr.items()}
+        #print(keylower_source_attr)
+        source_dict[source_dn] = source_attr
+        s = UncasedDict(source_attr)
+        
+        dest_dict = UncasedDict()
+        # print(dest_object.entry_dn)
+        dest_attr_dict = UncasedDict()
+        for entry in dest_object.entry_attributes:
+            dest_attr_dict[entry] = str(dest_object[entry])
+        dest_dict[dest_object.entry_dn] = dest_attr_dict
+        d = UncasedDict(dest_attr_dict)
+        print('****************source_dict***********')
+        print(source_dict)
+        print('******************dest_dict***********')
+        print(dest_dict)
+        print('**************************************')
+        print(source_dict)
+        # results = DictionaryCompare.get_common_key_value_pairs(s, d)
+
+        # # Print out the results
+        # print(results)
+        # for key, value in results.items():
+        #     print(key)
+        #     print(value)
+        diff_ou = diff(source_dict,dest_dict)
+        print(diff_ou)
+    
+
+
+
 
     def add_ou_record(self, new_dn: str, record_attributes: dict, object_class = ['organizationalUnit']):
         # print(new_dn, ' + ', object_class)
-        if not self.__is_record_exist(record_attributes['novellGUID']):
+        dest_dn = self.__is_record_exist(record_attributes['novellGUID'],attr=list(record_attributes))
+        if not dest_dn:
             self.add(dn=new_dn, object_class = object_class, attributes=record_attributes)
             if self.result['description'] == 'success' and self.result['type'] == 'addResponse':
                 logging.info('OU DN: ' + new_dn + ' добавлен')
@@ -97,12 +164,17 @@ class LDAP_Connector (Connection):
                 logging.error('OU DN: ' + new_dn + ' не создан. Ошибка: ' + self.result['message'] )
             pass
         else:
+            if len(dest_dn) == 1:
+                self.compare_records(source_dn = new_dn, source_attr = record_attributes, dest_object = dest_dn[0])
+            else:
+                logging.error('OU DN: ' + new_dn + ' Существует больше одного обэекта с novellGUID: ' + record_attributes['novellGUID'])
             logging.info('OU DN: ' + new_dn + ' уже существует')
         pass
 
 
     def add_user_record(self, new_dn: str, default_password: str, record_attributes: dict, set_default_password=True, object_class=['top', 'person', 'organizationalPerson', 'user']):
-        if not self.__is_record_exist(record_attributes['novellGUID']):
+        dest_dn = self.__is_record_exist(record_attributes['novellGUID'],attr=list(record_attributes))
+        if not dest_dn:
             try:
                 self.add(dn=new_dn, object_class=object_class, attributes=record_attributes)
                 if self.result['description'] == 'success' and self.result['type'] == 'addResponse':
@@ -126,6 +198,10 @@ class LDAP_Connector (Connection):
             #         logging.info('User with DN ' + new_dn + ' was add into group ' + group)
             #     pass
         else:
+            if len(dest_dn) == 1:
+                self.compare_records(source_dn = new_dn, source_attr = record_attributes, dest_object = dest_dn[0])
+            else:
+                logging.error('Пользователь DN: ' + new_dn + ' Существует больше одного обэекта с novellGUID: ' + record_attributes['novellGUID'])
             logging.info('Пользователь DN: ' + new_dn + ' уже существует')
             pass
         pass
