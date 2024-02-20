@@ -1,9 +1,8 @@
 import json, datetime
 from ldap3.utils.log import *
-from connector import LDAP_Connector
+from connector import LDAP_Connector, CaseInsensitiveDict
 from data import LDAP_Type
 from logger import logging
-
 from ldap3.extend.microsoft.addMembersToGroups import ad_add_members_to_groups
 
 ## Служебные функции
@@ -21,7 +20,7 @@ def rename_group(group_dn):
 
 #   Маппинг атрибутов
 def map_attributes(attribute_mapping_user, source_attributes):
-    mapped_attributes = {}
+    mapped_attributes = CaseInsensitiveDict()
     for target_attr, source_attr  in attribute_mapping_user.items():
         if source_attributes[source_attr] and source_attributes[source_attr] is not None:
             mapped_attributes[target_attr] = str(source_attributes[source_attr])
@@ -39,11 +38,28 @@ def __main__():
     attribute_mapping_ou = json_config['MappingAttr']['OU']
     attribute_mapping_user = json_config['MappingAttr']['User']
     attribute_mapping_group = json_config['MappingAttr']['Group']
+##
+    # Список атрибутов источника
+    source_attributes_ou = attribute_mapping_ou.values()
+    source_attributes_group = attribute_mapping_group.values()
+    source_attributes_user = attribute_mapping_user.values()
+    # Список атрибутов целевого сервера
+    dest_attributes_ou = attribute_mapping_ou.keys()
+    dest_attributes_user = attribute_mapping_user.keys()
+    dest_attributes_group = list(attribute_mapping_group.keys())
+
 
 
 ## Подключение к LDAP серверам
-    ad_connector = LDAP_Connector(fqdn=json_config['READ_DOMAIN_DC_FQDN'], ldap_manager=json_config['READ_DOMAIN_ADMIN_USERNAME'], ldap_password=json_config['READ_ADMIN_PASSWORD'], ldap_type=LDAP_Type.Edirectory)
-    samba_connector = LDAP_Connector(fqdn=json_config['WRITE_DOMAIN_DC_FQDN'], ldap_manager=json_config['WRITE_DOMAIN_ADMIN_USERNAME'], ldap_password=json_config['WRITE_ADMIN_PASSWORD'], ldap_type=LDAP_Type.SambaDC)
+    edir_connector = LDAP_Connector(fqdn=json_config['READ_DOMAIN_DC_FQDN'], \
+                                    ldap_manager=json_config['READ_DOMAIN_ADMIN_USERNAME'], \
+                                        ldap_password=json_config['READ_ADMIN_PASSWORD'], \
+                                            ldap_type=LDAP_Type.Edirectory)
+    samba_connector = LDAP_Connector(fqdn=json_config['WRITE_DOMAIN_DC_FQDN'], \
+                                     ldap_manager=json_config['WRITE_DOMAIN_ADMIN_USERNAME'], \
+                                        ldap_password=json_config['WRITE_ADMIN_PASSWORD'], \
+                                            ldap_type=LDAP_Type.SambaDC)
+
 
 
 ## Поиск объектов, учитывая фильтрацию по верхнеуровневым OU 
@@ -54,9 +70,15 @@ def __main__():
     source_ou_list, source_groups_list, source_user_list = [], [], []
     for ou in list_ou:
         search_base_ou = f'{ou + "," if ou else ""}{search_base}'
-        source_ou_list.extend(ad_connector.search_records(filter=json_config['LDAP_FILER_OU'], search_base=search_base_ou, attrubite_list=list(attribute_mapping_ou.values())))
-        source_groups_list.extend(ad_connector.search_records(filter=json_config['LDAP_FILER_GROUP'], search_base=search_base_ou, attrubite_list=list(attribute_mapping_group.values())))
-        source_user_list.extend(ad_connector.search_records(filter=json_config['LDAP_FILTER_USER'], search_base=search_base_ou, attrubite_list=list(attribute_mapping_user.values())))
+        source_ou_list.extend(edir_connector.search_records(filter=json_config['LDAP_FILER_OU'], \
+                                                          search_base=search_base_ou, \
+                                                            attrubite_list=list(source_attributes_ou)))
+        source_groups_list.extend(edir_connector.search_records(filter=json_config['LDAP_FILER_GROUP'], \
+                                                              search_base=search_base_ou, \
+                                                                attrubite_list=list(source_attributes_group)))
+        source_user_list.extend(edir_connector.search_records(filter=json_config['LDAP_FILTER_USER'], \
+                                                            search_base=search_base_ou, \
+                                                                attrubite_list=list(source_attributes_user)))
 
 
 
@@ -70,7 +92,9 @@ def __main__():
     key_sort = sorted(new_ou_dict.keys(), key=count_ou_occurrences)
     sorted_new_ou_dict = {i: new_ou_dict[i] for i in key_sort}
     for new_ou, attr in sorted_new_ou_dict.items():
-        samba_connector.add_ou_record(new_dn=new_ou, record_attributes=attr)
+        samba_connector.add_ou_record(source_new_dn=new_ou, \
+                                      source_attributes=attr, \
+                                        dest_attributes=dest_attributes_ou)
     pass
 
 
@@ -79,12 +103,15 @@ def __main__():
     for user in source_user_list:
         new_user = samba_connector.convert_dn(user.entry_dn, samba_connector.server.get_split_fqdn())
         user_mapped_attributes = map_attributes(attribute_mapping_user, user)
-        samba_connector.add_user_record(new_dn=new_user, set_default_password=True, default_password=json_config['DEFAULT_USER_MIGRATION_PASSWORD'],  record_attributes=user_mapped_attributes)
-        #print(samba_connector.result)
+        samba_connector.add_user_record(source_new_dn=new_user, \
+                                        set_default_password=True, \
+                                            default_password=json_config['DEFAULT_USER_MIGRATION_PASSWORD'], \
+                                                source_attributes=user_mapped_attributes, \
+                                                    dest_attributes=dest_attributes_user)
     pass
 
 
-"""
+
 ## Копирование групп и добавление в группу пользователей
     logging.info(f"************* Миграция групп {datetime.datetime.now()} *************")
     for group in source_groups_list:
@@ -96,12 +123,27 @@ def __main__():
         dest_group_members = list(samba_connector.convert_dn(group_member, samba_connector.server.get_split_fqdn()) for group_member in list(group['member']))
         # Удаление атрибута member, так как добавление членов в группу обрабатывается после создания группы
         group_mapped_attributes.pop('member', None)
+        dest_attributes_group.remove('member')
         # Создание группы
-        samba_connector.add_group_record(new_dn=new_group_dn, record_attributes=group_mapped_attributes)
+        samba_connector.add_group_record(source_new_dn=new_group_dn, \
+                                         source_attributes=group_mapped_attributes, \
+                                            dest_attributes=dest_attributes_group)
         # Добавление пользователей в группу, если она существует
         if samba_connector.result['description'] == 'success':
-            samba_connector.add_users_to_group(members_dn = dest_group_members, group_dn=new_group_dn)
+            samba_connector.add_users_to_group(members_dn = dest_group_members, \
+                                               group_dn=new_group_dn)
     pass
-"""
+
+## Удаление записей
+    samba_records = samba_connector.search_records(filter='(novellGUID=*)', \
+                                                          search_base=samba_connector.server.get_split_fqdn(), \
+                                                            attrubite_list='novellGUID')
+    list_samba_records = []
+    for record in samba_records:
+        search = '(GUID={})'.format(record.novellGUID)
+        edir_record = edir_connector.search_records(filter=search, search_base=search_base)
+        if not edir_record:
+            samba_connector.delete_records(dn=record.entry_dn)
+
 
 __main__()
