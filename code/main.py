@@ -10,10 +10,11 @@ from logger import logging
 def count_ou_occurrences(dn):
     return dn.count("ou=")
 
-#   Изменение имени группы в формат CN=CN.OU
+#   Изменение имени группы в формат CN=OU_GroupName
 def rename_group(group_dn):
     elements = group_dn.split(',')
-    first_element = elements[0] + '.' + elements[1].split('=')[1]
+    if elements[1].split('=')[1] not in elements[0]:
+        first_element =  'cn=' + elements[1].split('=')[1] + '_' + elements[0].split('=')[1]
     elements[0] = f"{first_element}"
     new_string = ','.join(elements)
     return new_string
@@ -49,35 +50,41 @@ def __main__():
     dest_attributes_group = list(attribute_mapping_group.keys())
 
 
-
 ## Подключение к LDAP серверам
     edir_connector = LDAP_Connector(fqdn=json_config['READ_DOMAIN_DC_FQDN'], \
                                     ldap_manager=json_config['READ_DOMAIN_ADMIN_USERNAME'], \
                                         ldap_password=json_config['READ_ADMIN_PASSWORD'], \
-                                            ldap_type=LDAP_Type.Edirectory)
+                                            ldap_type=LDAP_Type.Edirectory, \
+                                                source_root_dn=json_config['READ_ROOT_DN'], \
+                                                    dest_root_dn=json_config['WRITE_ROOT_DN'])
     samba_connector = LDAP_Connector(fqdn=json_config['WRITE_DOMAIN_DC_FQDN'], \
-                                     ldap_manager=json_config['WRITE_DOMAIN_ADMIN_USERNAME'], \
+                                        ldap_manager=json_config['WRITE_DOMAIN_ADMIN_USERNAME'], \
                                         ldap_password=json_config['WRITE_ADMIN_PASSWORD'], \
-                                            ldap_type=LDAP_Type.SambaDC)
+                                            ldap_type=LDAP_Type.SambaDC, \
+                                                source_root_dn=json_config['READ_ROOT_DN'], \
+                                                    dest_root_dn=json_config['WRITE_ROOT_DN'])
 
-
+## Список OU для переноса
+    list_ou = json_config['MIGRATION_LIST_OU']
+## Search base сервера источника и целевого сервера
+    source_search_base=json_config['MIGRATION_SEARCH_BASE']
+    dest_search_base=samba_connector.convert_dn(source_search_base)
 
 ## Поиск объектов, учитывая фильтрацию по верхнеуровневым OU 
 #  То есть если задан MIGRATION_SEARCH_BASE: "o=gazprom", а нужно копировать только ou=HQ,o=gazprom и ou=BrunchOffice01,o=gazprom
 #  то дополнительно это нужно задать в MIGRATION_LIST_OU "MIGRATION_LIST_OU": ["ou=HQ", "ou=BrunchOffice01"]  
-    list_ou = json_config['MIGRATION_LIST_OU']
-    search_base=json_config['MIGRATION_SEARCH_BASE']
+
     source_ou_list, source_groups_list, source_user_list = [], [], []
     for ou in list_ou:
-        search_base_ou = f'{ou + "," if ou else ""}{search_base}'
+        source_search_base_ou = f'{ou + "," if ou else ""}{source_search_base}'
         source_ou_list.extend(edir_connector.search_records(filter=json_config['LDAP_FILER_OU'], \
-                                                          search_base=search_base_ou, \
+                                                          search_base=source_search_base_ou, \
                                                             attribute_list=list(source_attributes_ou)))
         source_groups_list.extend(edir_connector.search_records(filter=json_config['LDAP_FILER_GROUP'], \
-                                                              search_base=search_base_ou, \
+                                                              search_base=source_search_base_ou, \
                                                                 attribute_list=list(source_attributes_group)))
         source_user_list.extend(edir_connector.search_records(filter=json_config['LDAP_FILTER_USER'], \
-                                                            search_base=search_base_ou, \
+                                                            search_base=source_search_base_ou, \
                                                                 attribute_list=list(source_attributes_user)))
 
 
@@ -105,23 +112,43 @@ def __main__():
         user_mapped_attributes = map_attributes(attribute_mapping_user, user)
         samba_connector.add_user_record(source_new_dn=new_user, \
                                         set_default_password=True, \
-                                            default_password=json_config['DEFAULT_USER_MIGRATION_PASSWORD'], \
-                                                source_attributes=user_mapped_attributes, \
-                                                    dest_attributes=dest_attributes_user)
+                                            disable_user=json_config['DISABLE_USER_AFTER_CREATION'],\
+                                                default_password=json_config['DEFAULT_USER_MIGRATION_PASSWORD'], \
+                                                    source_attributes=user_mapped_attributes, \
+                                                        dest_attributes=dest_attributes_user)
     pass
 
+## Подготока списка пользоватлей целевого сервера для последующего сравнения с сервером источником, добавления их в группы, и удаления 
+#  и удаления
+    dest_ou_list, dest_groups_list, dest_user_list = [], [], []
+    for ou in list_ou:
+        dest_search_base_ou = f'{ou + "," if ou else ""}{dest_search_base}'
+        dest_ou_list.extend(samba_connector.search_records(filter=json_config['LDAP_FILER_OU'], \
+                                                          search_base=dest_search_base_ou, \
+                                                            attribute_list=['novellGUID']))
+        dest_groups_list.extend(samba_connector.search_records(filter=json_config['LDAP_FILER_GROUP'], \
+                                                              search_base=dest_search_base_ou, \
+                                                                attribute_list=['novellGUID']))
+        dest_user_list.extend(samba_connector.search_records(filter=json_config['LDAP_FILTER_USER'], \
+                                                            search_base=dest_search_base_ou, \
+                                                                attribute_list=['novellGUID']))
 
 
 ## Копирование групп и добавление в группу пользователей
     logging.info(f"************* Миграция групп {datetime.datetime.now()} *************")
+    # Удаление атрибута member из списка атрибутов на целевом сервере, так как добавление членов выполняется после создания группы
     dest_attributes_group.remove('member')
+    # Пользователи на целевом сервере
+    set_dest_user_list = set(entry.entry_dn.lower() for entry in dest_user_list)
+
     for group in source_groups_list:
+        # Переименование группы в формат CN_GroupName
         new_group_dn = rename_group(samba_connector.convert_dn(group.entry_dn))
+        # Задание CN для группы в формат CN_GroupName
         new_cn = new_group_dn.split(',')[0].split('=')[1]
+        # Маппинг атрибутов группы
         group_mapped_attributes = map_attributes(attribute_mapping_group, group)
         group_mapped_attributes['cn'] = new_cn
-        # Подготовка списка членов группы
-        dest_group_members = list(samba_connector.convert_dn(group_member) for group_member in list(group['member']))
         # Удаление атрибута member, так как добавление членов в группу обрабатывается после создания группы
         group_mapped_attributes.pop('member', None)
         # Создание группы
@@ -130,34 +157,58 @@ def __main__():
                                             dest_attributes=dest_attributes_group)
         # Добавление пользователей в группу, если она существует
         if samba_connector.result['description'] == 'success':
-            samba_connector.add_users_to_group(members_dn = dest_group_members, \
+            # Подготовка списка членов для добавления в группу, проверка что пол
+            source_group_members = set(samba_connector.convert_dn(group_member).lower() for group_member in list(group['member']))
+            print(set_dest_user_list)
+            print(source_group_members)
+            # Находим только тех пользователей, которые есть целевом сервере
+            common_users = source_group_members & set_dest_user_list
+            print(common_users)
+            # Вывод информации, каких пользователей нет
+            not_on_dest_server = source_group_members - common_users
+            if not_on_dest_server:
+                logging.warning(f'Для группы {new_group_dn} нет пользователей на целевом сервере: {not_on_dest_server} ')
+            samba_connector.update_user_membership(source_group_members = common_users, \
                                                group_dn=new_group_dn)
     pass
 
 ## Удаление записей
-    list_ou = json_config['MIGRATION_LIST_OU']
-    search_base=json_config['MIGRATION_SEARCH_BASE']
-    source_ou_list, source_groups_list, source_user_list = [], [], []
-    # for ou in list_ou:
-    #     search_base_ou = f'{ou + "," if ou else ""}{search_base}'
-    #     source_ou_list.extend(edir_connector.search_records(filter=json_config['LDAP_FILER_OU'], \
-    #                                                       search_base=search_base_ou, \
-    #                                                         attribute_list=list(source_attributes_ou)))
-    #     source_groups_list.extend(edir_connector.search_records(filter=json_config['LDAP_FILER_GROUP'], \
-    #                                                           search_base=search_base_ou, \
-    #                                                             attribute_list=list(source_attributes_group)))
-    #     source_user_list.extend(edir_connector.search_records(filter=json_config['LDAP_FILTER_USER'], \
-    #                                                         search_base=search_base_ou, \
-    #                                                             attribute_list=list(source_attributes_user)))
-    # samba_records = samba_connector.search_records(filter='(novellGUID=*)', \
-    #                                                       search_base=samba_connector.server.get_split_fqdn(), \
-    #                                                         attribute_list='novellGUID')
-    # list_samba_records = []
-    # for record in samba_records:
-    #     search = '(GUID={})'.format(record.novellGUID)
-    #     edir_record = edir_connector.search_records(filter=search, search_base=search_base)
-    #     if not edir_record:
-    #         samba_connector.delete_records(dn=record.entry_dn)
+    # Удаление пользователей
+    print('****************************************')
+    # print(dest_user_list.attributes_as_dict)
+    dest_users = set(str(entry['novellGUID']) for entry in dest_user_list)
+    source_users = set(str(entry['GUID']) for entry in source_user_list)
+    print(dest_users)
+    print(source_users)
+    delete_users = dest_users - source_users
+    if delete_users:
+        samba_connector.delete_records(records=delete_users)
+
+    # # print(set(entry['novellGUID'] for entry in dest_user_list))
+
+    # list_ou = json_config['MIGRATION_LIST_OU']
+    # search_base=json_config['MIGRATION_SEARCH_BASE']
+    # source_ou_list, source_groups_list, source_user_list = [], [], []
+    # # for ou in list_ou:
+    # #     search_base_ou = f'{ou + "," if ou else ""}{search_base}'
+    # #     source_ou_list.extend(edir_connector.search_records(filter=json_config['LDAP_FILER_OU'], \
+    # #                                                       search_base=search_base_ou, \
+    # #                                                         attribute_list=list(source_attributes_ou)))
+    # #     source_groups_list.extend(edir_connector.search_records(filter=json_config['LDAP_FILER_GROUP'], \
+    # #                                                           search_base=search_base_ou, \
+    # #                                                             attribute_list=list(source_attributes_group)))
+    # #     source_user_list.extend(edir_connector.search_records(filter=json_config['LDAP_FILTER_USER'], \
+    # #                                                         search_base=search_base_ou, \
+    # #                                                             attribute_list=list(source_attributes_user)))
+    # # samba_records = samba_connector.search_records(filter='(novellGUID=*)', \
+    # #                                                       search_base=samba_connector.server.get_split_fqdn(), \
+    # #                                                         attribute_list='novellGUID')
+    # # list_samba_records = []
+    # # for record in samba_records:
+    # #     search = '(GUID={})'.format(record.novellGUID)
+    # #     edir_record = edir_connector.search_records(filter=search, search_base=search_base)
+    # #     if not edir_record:
+    # #         samba_connector.delete_records(dn=record.entry_dn)
 
 
 __main__()

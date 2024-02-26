@@ -12,6 +12,7 @@
     "WRITE_ADMIN_PASSWORD" : "P@ssw0rd",
     "WRITE_ROOT_DN": "dc=esk,dc=lab",
     "DEFAULT_USER_MIGRATION_PASSWORD": "P@ssw0rd",
+    "DISABLE_USER_AFTER_CREATION": "True",
     "WRITE_DOMAIN_DC_FQDN": "dc-100.esk.lab",
     "MappingAttr": {
         "User":{
