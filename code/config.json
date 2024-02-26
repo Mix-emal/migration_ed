@@ -5,13 +5,13 @@
     "READ_DOMAIN_ADMIN_USERNAME": "cn=admin,o=gazprom",
     "READ_ADMIN_PASSWORD": "KernKraftWerk6^6^",
     "READ_DOMAIN_DC_FQDN": "dc01.gazprom.ru",
+    "READ_ROOT_DN": "o=gazprom",
     "MIGRATION_SEARCH_BASE": "o=gazprom",
     "MIGRATION_LIST_OU": ["ou=U2"],
-    "MIGRATION_ATTRIBUTES_GROUP": ["cn", "sAMAccountName", "member"],
-    "MIGRATION_ATTRIBUTES_DICT": ["l", "givenname", "cn", "initials", "fullname", "sAMAccountName", "title", "mail","telephonenumber", "sn", "groupmembership"],
     "WRITE_DOMAIN_ADMIN_USERNAME" : "Administrator@esk.lab",
-    "DEFAULT_USER_MIGRATION_PASSWORD": "P@ssw0rd",
     "WRITE_ADMIN_PASSWORD" : "P@ssw0rd",
+    "WRITE_ROOT_DN": "dc=esk,dc=lab",
+    "DEFAULT_USER_MIGRATION_PASSWORD": "P@ssw0rd",
     "WRITE_DOMAIN_DC_FQDN": "dc-100.esk.lab",
     "MappingAttr": {
         "User":{

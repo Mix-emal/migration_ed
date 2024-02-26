@@ -1,9 +1,11 @@
-from ldap3 import Connection
+from ldap3 import Connection, LEVEL, SUBTREE
 from ldap3.core.exceptions import LDAPException, LDAPBindError, LDAPInvalidDnError
 from data import Server_Data, LDAP_Type
 from ldap3.extend.microsoft.addMembersToGroups import ad_add_members_to_groups
 from ldap3.extend.microsoft.removeMembersFromGroups import ad_remove_members_from_groups
 from logger import logging
+from typing import List
+
 
 
 ## Класс определяет регистронезависимый словарь
@@ -38,7 +40,8 @@ class LDAP_Connector (Connection):
         Return server FQDN into, example dc01.croc.demo -> "DC=croc, DC=demo"
     """
 
-    def __init__(self, fqdn: str, ldap_type: LDAP_Type, ldap_manager: str, ldap_password: str):
+    def __init__(self, fqdn: str, ldap_type: LDAP_Type, ldap_manager: str, ldap_password: str, \
+                 source_root_dn: str, dest_root_dn: str):
         """
         Init attributes for creating Server Object
 
@@ -61,6 +64,8 @@ class LDAP_Connector (Connection):
         self.__ldap_manager = ldap_manager
         self.__ldap_password = ldap_password
         self.server_data = Server_Data(fqdn, ldap_type)
+        self.source_root_dn = source_root_dn
+        self.dest_root_dn = dest_root_dn
 
         try:
             super().__init__(server=self.server_data, user=self.__ldap_manager, password=self.__ldap_password)
@@ -98,31 +103,37 @@ class LDAP_Connector (Connection):
 
     def __is_record_exist(self, search_filer: str, attr: list):
         search = '(novellGUID={})'.format(search_filer)
-        records = self.search_records(filter=search, search_base=self.server.get_split_fqdn(), attrubite_list=attr)
+        records = self.search_records(filter=search, search_base=self.server.get_split_fqdn(), attribute_list=attr)
         return records
 
 
 
-    def search_records(self, filter: str, search_base: str, attrubite_list=['distinguishedName']):
-        self.search(search_base=search_base, search_filter=filter, attributes=attrubite_list)
+    def search_records(self, filter: str, search_base: str, attribute_list=['distinguishedName']):
+        self.search(search_base=search_base, search_filter=filter, attributes=attribute_list)
         return self.entries
 
 
 
-    def convert_dn(self, source_dn, destination_base_dn):
-        parts = str(source_dn).split(',')
-        converted_parts = []
-        for part in parts:
-            key, value = part.split('=')
-            if key.lower() == 'o':
-                converted_part = f"{destination_base_dn}"
-            elif key.lower() == 'dc':
-                converted_part = f"{destination_base_dn}"
-            else:
-                converted_part = f"{key}={value}"
-            converted_parts.append(converted_part)
-        destination_dn = ','.join(converted_parts)
-        return destination_dn
+    def convert_dn(self, dn: str):
+        dn = dn.replace(self.source_root_dn.lower(), self.dest_root_dn)
+        return dn
+
+
+
+    # def convert_dn(self, source_dn, destination_base_dn):
+    #     parts = str(source_dn).split(',')
+    #     converted_parts = []
+    #     for part in parts:
+    #         key, value = part.split('=')
+    #         if key.lower() == 'o':
+    #             converted_part = f"{destination_base_dn}"
+    #         elif key.lower() == 'dc':
+    #             converted_part = f"{destination_base_dn}"
+    #         else:
+    #             converted_part = f"{key}={value}"
+    #         converted_parts.append(converted_part)
+    #     destination_dn = ','.join(converted_parts)
+    #     return destination_dn
 
 
 
@@ -254,39 +265,84 @@ class LDAP_Connector (Connection):
 
 
 
+
+
     def add_users_to_group(self, members_dn: list, group_dn: str):
-        source_user_list = [entry.lower() for entry in members_dn]
-        dest_group_members=[entry.lower() for entry in self.search_records(filter ='(objectclass=group)',search_base=group_dn, attrubite_list=['member'])[0].member]
-        ## Предварительно выполняем проверку состава групп между серверами
-        if not (set(source_user_list) == set(dest_group_members)):
-        # Eсли на целевом отличаются, то пользователей удаляем
-            members_for_del = [element for element in dest_group_members if element not in source_user_list]
-            if len(members_for_del) > 0:
+        
+        source_user_set = set(entry.lower() for entry in members_dn)
+        
+        dest_group_members = set(entry.lower() for entry in self.search_records(filter='(objectclass=group)', search_base=group_dn, attribute_list=['member'])[0].member)
+
+        # Предварительно выполняем проверку состава групп между серверами
+        if source_user_set != dest_group_members:
+            # Если на целевом отличаются, то пользователей удаляем
+            members_for_del = list(dest_group_members - source_user_set)
+            
+            if members_for_del:
                 ad_remove_members_from_groups(connection=self, members_dn=members_for_del, groups_dn=group_dn, fix=True, raise_error=False)
+                
                 if self.result['description'] == 'success' and self.result['type'] == 'modifyResponse':
-                    logging.info('Из группы '+ group_dn  + ' удалены пользователи: ' + '\n'.join(members_for_del))
+                    logging.info(f'Из группы {group_dn} удалены пользователи:\n' + '\n'.join(members_for_del))
                 else:
-                    logging.error('При удалении из группы DN: ' + group_dn + ' ошибка: ' + self.result['message'] )
-                pass
-        # Добавляем пользоватлей в группу
-            # Перед добавлением выполняется проверка, есть ли пользователи на целевом сервере
-            dest_user_list = [entry.entry_dn.lower() for entry in self.search_records(filter ='(objectclass=Person)',search_base=self.server.get_split_fqdn())]
-            common_users = set(source_user_list) & set(dest_user_list)
-            not_on_dest_server = [element for element in source_user_list if element not in common_users]
-            if len(not_on_dest_server) > 0:
-                logging.warning("Для группы " + group_dn + " нет пользователей на целевом севере:\n{}".format('\n'.join(map(str, not_on_dest_server))))
+                    logging.error(f'При удалении из группы DN: {group_dn} ошибка: {self.result["message"]}')
+            
+            # Добавляем пользователей в группу
+            dest_user_list = set(entry.entry_dn.lower() for entry in self.search_records(filter='(objectclass=Person)', search_base=self.server.get_split_fqdn()))
+            common_users = source_user_set & dest_user_list
+            not_on_dest_server = source_user_set - common_users
+            
+            if not_on_dest_server:
+                logging.warning(f'Для группы {group_dn} нет пользователей на целевом сервере:\n' + '\n'.join(map(str, not_on_dest_server)))
+            
             try:
                 ad_add_members_to_groups(connection=self, members_dn=common_users, groups_dn=group_dn, fix=True, raise_error=False)
+                
                 if self.result['description'] == 'success' and self.result['type'] == 'modifyResponse':
-                    logging.info("Для группы " + group_dn + " обновлено/добавлено членство пользователей:\n{}".format('\n'.join(map(str, common_users))))
+                    logging.info(f'Для группы {group_dn} обновлено/добавлено членство пользователей:\n' + '\n'.join(map(str, common_users)))
                 elif self.result['description'] == 'success' and self.result['type'] == 'searchResDone':
                     pass
                 else:
-                    logging.error("При добавлении пользователей в группу: " + group_dn + " возникла ошибка: " + self.result['message'] )
-                pass
+                    logging.error(f'При добавлении пользователей в группу: {group_dn} возникла ошибка: {self.result["message"]}')
             except LDAPInvalidDnError as error:
                 logging.error(error)
-                pass
+
+
+
+
+
+    # def add_users_to_group(self, members_dn: list, group_dn: str):
+    #     source_user_list = [entry.lower() for entry in members_dn]
+    #     dest_group_members=[entry.lower() for entry in self.search_records(filter ='(objectclass=group)',search_base=group_dn, attribute_list=['member'])[0].member]
+    #     ## Предварительно выполняем проверку состава групп между серверами
+    #     if not (set(source_user_list) == set(dest_group_members)):
+    #     # Eсли на целевом отличаются, то пользователей удаляем
+    #         members_for_del = [element for element in dest_group_members if element not in source_user_list]
+    #         if len(members_for_del) > 0:
+    #             ad_remove_members_from_groups(connection=self, members_dn=members_for_del, groups_dn=group_dn, fix=True, raise_error=False)
+    #             if self.result['description'] == 'success' and self.result['type'] == 'modifyResponse':
+    #                 logging.info('Из группы '+ group_dn  + ' удалены пользователи: ' + '\n'.join(members_for_del))
+    #             else:
+    #                 logging.error('При удалении из группы DN: ' + group_dn + ' ошибка: ' + self.result['message'] )
+    #             pass
+    #     # Добавляем пользоватлей в группу
+    #         # Перед добавлением выполняется проверка, есть ли пользователи на целевом сервере
+    #         dest_user_list = [entry.entry_dn.lower() for entry in self.search_records(filter ='(objectclass=Person)',search_base=self.server.get_split_fqdn())]
+    #         common_users = set(source_user_list) & set(dest_user_list)
+    #         not_on_dest_server = [element for element in source_user_list if element not in common_users]
+    #         if len(not_on_dest_server) > 0:
+    #             logging.warning("Для группы " + group_dn + " нет пользователей на целевом севере:\n{}".format('\n'.join(map(str, not_on_dest_server))))
+    #         try:
+    #             ad_add_members_to_groups(connection=self, members_dn=common_users, groups_dn=group_dn, fix=True, raise_error=False)
+    #             if self.result['description'] == 'success' and self.result['type'] == 'modifyResponse':
+    #                 logging.info("Для группы " + group_dn + " обновлено/добавлено членство пользователей:\n{}".format('\n'.join(map(str, common_users))))
+    #             elif self.result['description'] == 'success' and self.result['type'] == 'searchResDone':
+    #                 pass
+    #             else:
+    #                 logging.error("При добавлении пользователей в группу: " + group_dn + " возникла ошибка: " + self.result['message'] )
+    #             pass
+    #         except LDAPInvalidDnError as error:
+    #             logging.error(error)
+    #             pass
 
 
 
