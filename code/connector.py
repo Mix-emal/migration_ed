@@ -6,8 +6,7 @@ from ldap3.extend.microsoft.removeMembersFromGroups import ad_remove_members_fro
 from logger import logging
 
 
-
-## Класс определяет регистронезависимый словарь
+## Класс словаря, который является регистронезависимым - ключи в нем обрабатываются без учета регистра.
 class CaseInsensitiveDict(dict):
     def __setitem__(self, key, value):
         super(CaseInsensitiveDict, self).__setitem__(key.lower(), value)
@@ -15,7 +14,6 @@ class CaseInsensitiveDict(dict):
     def __getitem__(self, key):
         return super(CaseInsensitiveDict, self).__getitem__(key.lower())
 
-    
 
 ## Основной класс
 class LDAP_Connector (Connection):
@@ -75,10 +73,11 @@ class LDAP_Connector (Connection):
             pass
         pass
 
-
-
+## Метод для сравнения атрибутов. Принимает два словаря, source_attr_dict и dest_attr_dict,
+# и сравнивает их значения. Возвращает новый словарь result_dictionary, содержащий ключи, которые были изменены, 
+# а также соответствующие изменения.
     @staticmethod
-    def __get_changed_attr(source_attr_dict, dest_attr_dict):
+    def __get_changed_attr(source_attr_dict: dict, dest_attr_dict: dict):
         result_dictionary = {}
         for key in dest_attr_dict.keys():
             if key in source_attr_dict:
@@ -89,8 +88,7 @@ class LDAP_Connector (Connection):
                     result_dictionary[key] = ['MODIFY_REPLACE', list('')]
         return result_dictionary
     
-
-
+## Метод для преобразования регистра. Применяется для стандартизации регистра в строках DN
     @staticmethod
     def __lower_case_cn_ou_dc(input_string: str):
         input_string = input_string.replace('CN=', 'cn=')
@@ -98,46 +96,26 @@ class LDAP_Connector (Connection):
         input_string = input_string.replace('DC=', 'dc=')
         return input_string
 
-
-
-    def __is_record_exist(self, search_filer: str, attr: list):
+## Метод выполняющий поиск записей на основе аттрибута novellGUID. По умолчанию возвращает аттрибут distinguishedName
+    def __is_record_exist(self, search_filer: str, attr=['distinguishedName']):
         search = '(novellGUID={})'.format(search_filer)
-        records = self.search_records(filter=search, search_base=self.server.get_split_fqdn(), attribute_list=attr)
+        records = self.search_records(filter=search, search_base=self.dest_root_dn, attribute_list=attr)
         return records
 
-
-
+## Метод выполняющий поиск записей на основе заданного фильтра. По умолчанию возвращает аттрибут distinguishedName
     def search_records(self, filter: str, search_base: str, attribute_list=['distinguishedName']):
         self.search(search_base=search_base, search_filter=filter, attributes=attribute_list)
         return self.entries
 
-
-
+## Метод для конвертации DN в формат целевого сервера (замена rootDN)
     def convert_dn(self, dn: str):
         dn = dn.replace(self.source_root_dn.lower(), self.dest_root_dn)
         return dn
 
-
-
-    # def convert_dn(self, source_dn, destination_base_dn):
-    #     parts = str(source_dn).split(',')
-    #     converted_parts = []
-    #     for part in parts:
-    #         key, value = part.split('=')
-    #         if key.lower() == 'o':
-    #             converted_part = f"{destination_base_dn}"
-    #         elif key.lower() == 'dc':
-    #             converted_part = f"{destination_base_dn}"
-    #         else:
-    #             converted_part = f"{key}={value}"
-    #         converted_parts.append(converted_part)
-    #     destination_dn = ','.join(converted_parts)
-    #     return destination_dn
-
-
-
+## Метод предназначен для сравнения и обновления записей в LDAP
     def compare_records(self, source_dn: str, source_attr: dict, dest_object):
-    ## Подготовка данных для сравнения: DN и атрибуты
+    # Подготовка данных для сравнения: DN и атрибуты: Извлекаются и подготавливаются данные для сравнения, 
+    # включая разделение DN на составляющие, приведение к нижнему регистру и формирование словаря атрибутов для целевого объекта.
         #   Данные с сервера истончника
         source_dn_list = source_dn.split(',')
         source_cn = self.__lower_case_cn_ou_dc(source_dn_list[0])
@@ -150,18 +128,21 @@ class LDAP_Connector (Connection):
         dest_cn = self.__lower_case_cn_ou_dc(dest_dn_list[0])
         dest_container = self.__lower_case_cn_ou_dc(','.join(dest_dn_list[1:]))
     ## Сверка и обновление DN
+        # Если Organizational Units (OU) записи не совпадают, производится перемещение записи в другой контейнер.
         if dest_cn == source_cn and source_container != dest_container:
             self.modify_dn(dest_object.entry_dn, dest_cn, new_superior=source_container)
             if self.result['description'] == 'success':
                 logging.info('DN: ' + dest_object.entry_dn + ' перемещен в контейнер ' + source_container)
             else:
                 logging.error('DN: ' + dest_object.entry_dn + '. Ошибка перемещения: ' + self.result['message'] )
+        # Если Common Name (CN) записи на целевом сервере не совпадает с источником, производится переименование записи.
         elif dest_cn != source_cn and source_container == dest_container:
             self.modify_dn(','.join([dest_cn, dest_container]), source_cn)
             if self.result['description'] == 'success':
                 logging.info('DN: ' + dest_object.entry_dn + ' переименован в ' + source_cn)
             else:
                 logging.error('DN: ' + dest_object.entry_dn + ' при переименовании произошла ошибка: ' + self.result['message'] )
+        # Если и CN, и OU не совпадают, выполняются и переименование, и перемещение.
         elif dest_cn != source_cn and source_container != dest_container:
             self.modify_dn(dest_object.entry_dn, dest_cn, new_superior=source_container)
             if self.result['description'] == 'success':
@@ -173,8 +154,10 @@ class LDAP_Connector (Connection):
                 logging.info('DN: ' + dest_object.entry_dn + ' переименован в ' + source_cn)
             else:
                 logging.error('DN: ' + dest_object.entry_dn + ' при переименовании произошла ошибка: ' + self.result['message'] )
-    ## Сверка и обновление атрибутов    
+    ## Сверка и обновление атрибутов
+        # Вызывается функция __get_changed_attr, чтобы определить измененные атрибуты между источником и целевым объектом.
         compare_attributes = self.__get_changed_attr(source_attr, dest_attr_dict)
+        # Если есть изменения, вызывается функция modify для обновления атрибутов на целевом сервере.
         if compare_attributes:
             self.modify(source_dn, compare_attributes)
             if self.result['description'] == 'success':
@@ -182,19 +165,22 @@ class LDAP_Connector (Connection):
             else:
                 logging.error('DN: ' + dest_object.entry_dn + ' ошибка при обновлении атрибутов ' + ' ,'.join(list(compare_attributes.keys())) + ': ' + self.result['message'] )
 
-
-
+## Метод для добавления записи (organizationalUnit) в LDAP-каталог. 
     def add_ou_record(self, source_new_dn: str, \
                       source_attributes: dict, \
                         dest_attributes: list, \
                             object_class = ['organizationalUnit']):
+        # Проверка существования записи
+        # Вызывается метод __is_record_exist для проверки существования записи с указанным novellGUID и другими атрибутами.
         dest_dn = self.__is_record_exist(source_attributes['novellGUID'],attr=list(dest_attributes))
+        # Если запись не существует, она добавляется. 
         if not dest_dn:
             self.add(dn=source_new_dn, object_class = object_class, attributes=source_attributes)
             if self.result['description'] == 'success' and self.result['type'] == 'addResponse':
                 logging.info('OU DN: ' + source_new_dn + ' добавлен')
             else:
                 logging.error('OU DN: ' + source_new_dn + ' не создан. Ошибка: ' + self.result['message'] )
+        # В противном случае производится логирование и вызывается метод compare_records (сравнение)
         else:
             logging.info('OU DN: ' + source_new_dn + ' уже существует')
             if len(dest_dn) == 1:
@@ -203,7 +189,7 @@ class LDAP_Connector (Connection):
                 logging.error('OU DN: ' + source_new_dn + ' Существует больше одного объекта с novellGUID: ' + source_attributes['novellGUID'])
 
 
-
+## Метод для добавления учетной записи в LDAP-каталог. 
     def add_user_record(self, source_new_dn: str, \
                         default_password: str, \
                             source_attributes: dict, \
@@ -228,17 +214,17 @@ class LDAP_Connector (Connection):
             # Задание пароля для пользователя
             if set_default_password and self.result['description'] == 'success':
                 self.extend.microsoft.modify_password(source_new_dn, new_password=default_password)
-                # По умолчанию пользователь создается неактивным (userAccountControl = 514)
-                if disable_user:
+                # По умолчанию (определяется в конфигурации) пользователь создается неактивным (userAccountControl = 514)
+                if disable_user.lower() == 'true':
                     self.modify(source_new_dn, {'userAccountControl': [('MODIFY_REPLACE', 514)]})
                 else:
                     self.modify(source_new_dn, {'userAccountControl': [('MODIFY_REPLACE', 512)]})
-                # Установка флага для смены при первом входе
+                # Установка флага для смены пароля при первом входе
                 self.modify(source_new_dn, {'pwdLastSet': [('MODIFY_REPLACE', 0)]})
                 if self.result['description'] == 'success' and self.result['type'] == 'modifyResponse':
                     logging.info('Пароль \'' + default_password + '\' установлен для пользователя DN: ' + source_new_dn)
                 pass
-        # Если пользователь существует, то выполняется проверка на соответсвие атрибутов
+        # В противном случае производится логирование и вызывается метод compare_records (сравнение)
         else:
             logging.info('Пользователь DN: ' + source_new_dn + ' уже существует')
             if len(dest_dn) == 1:
@@ -246,55 +232,54 @@ class LDAP_Connector (Connection):
             else:
                 logging.error('Пользователь DN: ' + source_new_dn + ' Существует больше одного объекта с novellGUID: ' + source_attributes['novellGUID'])
 
-
-
+## Метод для добавления группы в LDAP-каталог. 
     def add_group_record(self, source_new_dn: str, source_attributes: dict, dest_attributes: dict, object_class = ['top', 'group']):
+        # Проверка существования записи
+        # Вызывается метод __is_record_exist для проверки существования записи с указанным novellGUID и другими атрибутами.
         dest_dn = self.__is_record_exist(source_attributes['novellGUID'],attr=list(dest_attributes))
+        # Если не существует, то группа создается
         if not dest_dn:
             self.add(dn=source_new_dn, object_class = object_class, attributes=source_attributes)
             if self.result['description'] == 'success' and self.result['type'] == 'addResponse':
                 logging.info('Группа DN: ' + source_new_dn + ' добавлена')
             else:
                 logging.error('Группа DN: ' + source_new_dn + ' не создана. Ошибка: ' + self.result['message'] )
+        # В противном случае производится логирование и вызывается метод compare_records (сравнение)
         else:
             logging.info('Группа DN:' + source_new_dn + ' уже существует')
             if len(dest_dn) == 1:
                 self.compare_records(source_dn = source_new_dn, source_attr = source_attributes, dest_object = dest_dn[0])
 
-
-
+## Метод для синхронизации членства в группе между двумя серверами LDAP
     def update_user_membership(self, source_group_members: list, group_dn: str):
-        
-        # source_user_set = set(entry.lower() for entry in members_dn)
-        
+        # Получение текущих членов группы на целевом сервере:
+        # Используется метод search_records для поиска записи группы и получения ее членов.
+        # Результат сохраняется в множество dest_group_members.
         dest_group_members = set(entry.lower() for entry in self.search_records(filter='(objectclass=group)', \
                                                                                 search_base=group_dn,\
                                                                                       attribute_list=['member'])[0].member)
-
-        # Предварительно выполняем проверку состава групп между серверами
+        # Проверка различий между членами групп на источнике и целевом
+        # Сравниваются списки членов группы на источнике (source_group_members) и на целевом сервере (dest_group_members).
+        # Если есть различия, выполняются дополнительные шаги для обновления состава группы на целевом сервере
         if source_group_members != dest_group_members:
-            # Если на целевом отличаются, то пользователей удаляем
-            members_for_del = dest_group_members - source_group_members
-            
+            # Удаление лишних пользователей из группы на целевом сервере
+            # Вычисляются пользователи, которые есть в группе на целевом сервере, но отсутствуют в группе на источнике.
+            members_for_del = dest_group_members.difference(source_group_members)
+            # Если такие пользователи есть, они удаляются из группы
             if members_for_del:
-                ad_remove_members_from_groups(connection=self, members_dn=members_for_del, groups_dn=group_dn, fix=True, raise_error=False)
-                
+                ad_remove_members_from_groups(connection=self,\
+                                               members_dn=members_for_del, \
+                                                groups_dn=group_dn, \
+                                                    fix=True, raise_error=False)
                 if self.result['description'] == 'success' and self.result['type'] == 'modifyResponse':
                     logging.info(f'Из группы {group_dn} удалены пользователи: {members_for_del}')
                 else:
                     logging.error(f'При удалении из группы DN: {group_dn} ошибка: {self.result["message"]}')
-            
-        ## Добавляем пользователей в группу
-            # dest_user_list = set(entry.entry_dn.lower() for entry in self.search_records(filter='(objectclass=Person)', search_base=self.server.get_split_fqdn()))
-            # common_users = source_user_set & dest_user_list
-            # not_on_dest_server = source_user_set - common_users
-            
-            # if not_on_dest_server:
-            #     logging.warning(f'Для группы {group_dn} нет пользователей на целевом сервере:\n' + '\n'.join(map(str, not_on_dest_server)))
-            
+            # Добавление новых пользователей в группу:
+            # Вызывается метод ad_add_members_to_groups для добавления пользователей в группу.
             try:
-                ad_add_members_to_groups(connection=self, members_dn=source_group_members, groups_dn=group_dn, fix=True, raise_error=False)
-                
+                ad_add_members_to_groups(connection=self, members_dn=source_group_members,\
+                                          groups_dn=group_dn, fix=True, raise_error=False)
                 if self.result['description'] == 'success' and self.result['type'] == 'modifyResponse':
                     logging.info(f'Для группы {group_dn} обновлено/добавлено членство пользователей: {source_group_members}')
                 elif self.result['description'] == 'success' and self.result['type'] == 'searchResDone':
@@ -304,49 +289,15 @@ class LDAP_Connector (Connection):
             except LDAPInvalidDnError as error:
                 logging.error(error)
 
-
-
-
-
-    # def add_users_to_group(self, members_dn: list, group_dn: str):
-    #     source_user_list = [entry.lower() for entry in members_dn]
-    #     dest_group_members=[entry.lower() for entry in self.search_records(filter ='(objectclass=group)',search_base=group_dn, attribute_list=['member'])[0].member]
-    #     ## Предварительно выполняем проверку состава групп между серверами
-    #     if not (set(source_user_list) == set(dest_group_members)):
-    #     # Eсли на целевом отличаются, то пользователей удаляем
-    #         members_for_del = [element for element in dest_group_members if element not in source_user_list]
-    #         if len(members_for_del) > 0:
-    #             ad_remove_members_from_groups(connection=self, members_dn=members_for_del, groups_dn=group_dn, fix=True, raise_error=False)
-    #             if self.result['description'] == 'success' and self.result['type'] == 'modifyResponse':
-    #                 logging.info('Из группы '+ group_dn  + ' удалены пользователи: ' + '\n'.join(members_for_del))
-    #             else:
-    #                 logging.error('При удалении из группы DN: ' + group_dn + ' ошибка: ' + self.result['message'] )
-    #             pass
-    #     # Добавляем пользоватлей в группу
-    #         # Перед добавлением выполняется проверка, есть ли пользователи на целевом сервере
-    #         dest_user_list = [entry.entry_dn.lower() for entry in self.search_records(filter ='(objectclass=Person)',search_base=self.server.get_split_fqdn())]
-    #         common_users = set(source_user_list) & set(dest_user_list)
-    #         not_on_dest_server = [element for element in source_user_list if element not in common_users]
-    #         if len(not_on_dest_server) > 0:
-    #             logging.warning("Для группы " + group_dn + " нет пользователей на целевом севере:\n{}".format('\n'.join(map(str, not_on_dest_server))))
-    #         try:
-    #             ad_add_members_to_groups(connection=self, members_dn=common_users, groups_dn=group_dn, fix=True, raise_error=False)
-    #             if self.result['description'] == 'success' and self.result['type'] == 'modifyResponse':
-    #                 logging.info("Для группы " + group_dn + " обновлено/добавлено членство пользователей:\n{}".format('\n'.join(map(str, common_users))))
-    #             elif self.result['description'] == 'success' and self.result['type'] == 'searchResDone':
-    #                 pass
-    #             else:
-    #                 logging.error("При добавлении пользователей в группу: " + group_dn + " возникла ошибка: " + self.result['message'] )
-    #             pass
-    #         except LDAPInvalidDnError as error:
-    #             logging.error(error)
-    #             pass
-
-
-
+## Метод для удаления записей (объектов) из LDAP-каталога.
+#  В качестве входных данных получает словарь с идентификаторами объектов (атрибут NovellGUID)
     def delete_records(self, records: dict):
+        # Итерация по переданным записям
         for record in records:
-            dn = self.__is_record_exist(record)
+            # Получение DN (Distinguished Name) записи:
+            # Вызывается метод __is_record_exist для поиска записи в LDAP-каталоге и получения ее DN.
+            dn = self.__is_record_exist(record)[0].entry_dn
+            # Удаление записи: Вызывается метод delete с переданным DN для удаления записи
             self.delete(dn)
             if self.result['description'] == 'success' and self.result['type'] == 'delResponse':
                 logging.info("Удален DN: " + dn)
