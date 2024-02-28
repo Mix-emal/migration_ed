@@ -70,8 +70,6 @@ class LDAP_Connector (Connection):
             pass
         except LDAPBindError as error:
             logging.critical(error)
-            pass
-        pass
 
 ## Метод для сравнения атрибутов. Принимает два словаря, source_attr_dict и dest_attr_dict,
 # и сравнивает их значения. Возвращает новый словарь result_dictionary, содержащий ключи, которые были изменены, 

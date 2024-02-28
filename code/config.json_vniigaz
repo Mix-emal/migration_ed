@@ -1,16 +1,38 @@
 {
     "LDAP_FILTER_USER": "(objectclass=Person)",
     "LDAP_FILER_GROUP": "(objectclass=Group)",
-    "LDAP_FILER_OU" : "(&(objectClass=organizationalUnit)(|(ou=U*)(ou=PublGRP)))",
+    "LDAP_FILER_OU" : "(objectClass=organizationalUnit)",
     "READ_DOMAIN_ADMIN_USERNAME": "cn=admin,o=gazprom",
-    "READ_ADMIN_PASSWORD": "P@ssw0rd",
+    "READ_ADMIN_PASSWORD": "KernKraftWerk6^6^",
     "READ_DOMAIN_DC_FQDN": "oes4.vniigaz.gazprom.ru",
-    "MIGRATION_DEFAULT_OU": "ou=U1,o=VNIIGAZ",
-    "MIGRATION_ATTRIBUTES_GROUP": ["cn", "sAMAccountName"],
-    "MIGRATION_ATTRIBUTES_DICT": ["l", "givenname", "cn", "initials", "fullname", "sAMAccountName", "title", "mail","telephonenumber", "sn", "groupmembership"],
-    "WRITE_DOMAIN_ADMIN_USERNAME" : "emalanuk@vng.gazprom.ru",
-    "DEFAULT_USER_MIGRATION_PASSWORD": "KernKraftWerk6^6^",
-    "WRITE_ADMIN_PASSWORD" : "KernKraftWerk66^^",
-    "WRITE_DOMAIN_DC_FQDN": "msk-hd-dc01.vng.gazprom.ru"
+    "READ_ROOT_DN": "o=vniigaz",
+    "MIGRATION_SEARCH_BASE": "o=vniigaz",
+    "MIGRATION_LIST_OU": ["ou=U1","ou=U2","ou=U3","ou=U4","ou=U5","ou=U6","ou=U7","ou=U8","ou=PblGrp"],
+    "WRITE_DOMAIN_ADMIN_USERNAME" : "Administrator@vng.gazprom.ru",
+    "WRITE_ADMIN_PASSWORD" : "PrK@234L",
+    "WRITE_DOMAIN_DC_FQDN": "msk-hd-dc01.vng.gazprom.ru",
+    "WRITE_ROOT_DN": "dc=vng,dc=gazprom,dc=ru",
+    "DEFAULT_USER_MIGRATION_PASSWORD": "!QAZxsw234",
+    "DISABLE_USER_AFTER_CREATION": "True",
+    "MappingAttr": {
+        "User":{
+            "displayName": "fullname",
+            "initials": "initials",
+            "givenName": "givenName",
+            "l": "l",
+            "mail": "mail",
+            "middleName": "middleName",
+            "samAccountName": "sAMAccountName",
+            "sn": "sn",
+            "telephoneNumber": "telephoneNumber",
+            "title": "title",
+            "userPrincipalName": "userPrincipalName",
+            "novellGUID": "GUID"},
+        "Group": {
+            "sAMAccountName": "sAMAccountName", 
+            "member": "member",
+            "novellGUID": "GUID"},
+        "OU": {
+            "novellGUID": "GUID"}
+    }
 }
-

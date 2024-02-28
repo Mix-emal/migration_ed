@@ -1,0 +1,55 @@
+vim schema_add_attr.ldif
+
+dn: CN=novellGUID,CN=Schema,CN=Configuration,dc=vng,dc=gazprom,dc=ru
+changetype: add
+objectClass: top
+objectClass: attributeSchema
+attributeID: 1.3.6.1.4.1.7165.777.2.1.1
+cn: novellGUID
+name: novellGUID
+lDAPDisplayName: novellGUID
+description: Custom attribute for store GUID from Novell
+attributeSyntax: 2.5.5.5
+oMSyntax: 22
+isSingleValued: TRUE
+
+*************************
+vim schemaUpgrade_classes.ldif
+
+dn: CN=customClass,CN=Schema,CN=Configuration,dc=vng,dc=gazprom,dc=ru
+changetype: add
+objectClass: top
+objectClass: classSchema
+governsID: 1.3.6.1.4.1.7165.777.2.2.1
+cn: customClass
+name: customClass
+lDAPDisplayName: customClass
+description: Class containing custom attributes
+subClassOf: top
+objectClassCategory: 3
+mayContain: novellGUID
+
+
+*************************
+vim updateUser.ldif
+
+dn: CN=User,CN=Schema,CN=Configuration,dc=vng,dc=gazprom,dc=ru
+changetype: modify
+add: auxiliaryClass
+auxiliaryClass: customClass
+
+dn: CN=Group,CN=Schema,CN=Configuration,dc=vng,dc=gazprom,dc=ru
+changetype: modify
+add: auxiliaryClass
+auxiliaryClass: customClass
+
+dn: CN=Organizational-Unit,CN=Schema,CN=Configuration,dc=vng,dc=gazprom,dc=ru
+changetype: modify
+add: auxiliaryClass
+auxiliaryClass: customClass
+
+
+
+LDB_MODULES_PATH=/usr/lib64/samba/ldb/ ldbadd -H /var/lib/samba/private/sam.ldb schema_add_attr.ldif -option="dsdb:schema update allowed"=true
+LDB_MODULES_PATH=/usr/lib64/samba/ldb/ ldbadd -H /var/lib/samba/private/sam.ldb schemaUpgrade_classes.ldif -option="dsdb:schema update allowed"=true
+LDB_MODULES_PATH=/usr/lib64/samba/ldb/ ldbmodify -v -H /var/lib/samba/private/sam.ldb updateUser.ldif --option="dsdb:schema update allowed"=true
