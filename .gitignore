@@ -33,7 +33,8 @@ old/
 test*
 
 *.json_vniigaz
-config.json_vniigaz
+config.json*vniigaz
+*.pem
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
