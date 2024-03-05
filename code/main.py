@@ -23,7 +23,7 @@ def rename_group(group_dn):
 def map_attributes(attribute_mapping_user, source_attributes):
     mapped_attributes = CaseInsensitiveDict()
     for target_attr, source_attr  in attribute_mapping_user.items():
-        if source_attributes[source_attr] and source_attributes[source_attr] is not None:
+        if source_attributes[source_attr] and source_attributes[source_attr] != '':
             mapped_attributes[target_attr] = str(source_attributes[source_attr])
     return mapped_attributes
 

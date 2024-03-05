@@ -7,7 +7,7 @@
     "READ_DOMAIN_DC_FQDN": "dc01.gazprom.ru",
     "READ_ROOT_DN": "o=gazprom",
     "MIGRATION_SEARCH_BASE": "o=gazprom",
-    "MIGRATION_LIST_OU": ["ou=U2"],
+    "MIGRATION_LIST_OU": ["OU=U2"],
     "WRITE_DOMAIN_ADMIN_USERNAME" : "Administrator@esk.lab",
     "WRITE_ADMIN_PASSWORD" : "P@ssw0rd",
     "WRITE_DOMAIN_DC_FQDN": "dc-100.esk.lab",

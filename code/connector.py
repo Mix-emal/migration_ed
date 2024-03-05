@@ -3,6 +3,7 @@ from ldap3.core.exceptions import LDAPException, LDAPBindError, LDAPInvalidDnErr
 from data import Server_Data, LDAP_Type
 from ldap3.extend.microsoft.addMembersToGroups import ad_add_members_to_groups
 from ldap3.extend.microsoft.removeMembersFromGroups import ad_remove_members_from_groups
+import re
 from logger import logging
 
 
@@ -107,8 +108,11 @@ class LDAP_Connector (Connection):
 
 ## Метод для конвертации DN в формат целевого сервера (замена rootDN)
     def convert_dn(self, dn: str):
-        dn = dn.replace(self.source_root_dn.lower(), self.dest_root_dn)
-        return dn
+        # Регистронезависимая замена
+        compiled = re.compile(re.escape(self.source_root_dn), re.IGNORECASE)
+        dn_new = compiled.sub(self.dest_root_dn, dn)
+        # dn = dn.replace(self.source_root_dn.lower(), self.dest_root_dn)
+        return dn_new
 
 ## Метод предназначен для сравнения и обновления записей в LDAP
     def compare_records(self, source_dn: str, source_attr: dict, dest_object):
